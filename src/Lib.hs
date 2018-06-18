@@ -59,14 +59,14 @@ color r@(Ray o d) world =
 {-# INLINE color #-}
 
 data HitResult = HitResult {
-  t :: Double,
-  p :: Array D Ix1 Double,
-  normal :: Array D Ix1 Double
+  t :: !Double,
+  p :: !(Array D Ix1 Double),
+  normal :: !(Array D Ix1 Double)
 } deriving (Eq, Show, Ord)
 
 data Sphere = Sphere {
-  center :: Array D Ix1 Double,
-  radius :: Double
+  center :: !(Array D Ix1 Double),
+  radius :: !Double
 } deriving (Eq, Show, Ord, Generic)
 
 newtype World a = World (Array D Ix1 a)
@@ -96,25 +96,26 @@ instance Hitable Sphere where
           positiveRoot = (-b + (sqrt $ b*b - a*c)) / a
           negativeRoot = (-b + (sqrt $ b*b - a*c)) / a
 
-arrLightIx2 :: Hitable a => Comp -> Ix2 -> World a -> StdGen -> Int -> Array U Ix2 MyPixel
-arrLightIx2 comp arrSz@(sizeY :. sizeX) world gen samples = makeArray comp arrSz lightFunc
+arrLightIx2 :: Hitable a => Ix2 -> World a -> Int -> Array U Ix2 MyPixel
+arrLightIx2 arrSz@(sizeY :. sizeX) world samples = makeArray Par arrSz lightFunc
   where origin = fromList' [0.0, 0.0, 0.0]
         vertical = fromList' [0.0, 2.0, 0.0]
         horizontal = fromList' [4.0, 0.0, 0.0]
         lowerLeft = fromList' [-2.0, -1.0, -1.0]
         samplesD = fromIntegral samples
-        offsets :: Array P Ix1 Double
-        offsets = fromList Seq $ L.take (2 * samples * sizeX * sizeY) $ randoms gen
 
         castRay :: Int -> Int -> (Double, Double, Double) -> Int -> (Double, Double, Double)
         castRay i j (r, g, b) sample = 
           let idx = 2 * i * j * sample
-              u = ((offsets ! idx) + fromIntegral i) / fromIntegral sizeX
-              v = ((offsets ! (idx + 1)) + fromIntegral (sizeY - 1 - j)) / fromIntegral sizeY
+              generator = mkStdGen idx
+              r1:r2:_ = randoms generator
+              u = (r1 + fromIntegral i) / fromIntegral sizeX
+              v = (r2 + fromIntegral (sizeY - 1 - j)) / fromIntegral sizeY
               ray = Ray origin (lowerLeft + (singleton Seq u) * horizontal + (singleton Seq v) * vertical)
               col = color ray world
           in (r + (col ! 0), g + (col ! 1), b + (col ! 2))
-        lightFunc (j :. i) = let (r, g, b) = L.foldl' (castRay i j) (0.0, 0.0, 0.0) [0..(samples - 1)]
+        lightFunc (j :. i) = let (r, g, b) = L.foldl' (castRay i j) (0.0, 0.0, 0.0) 
+                                                      [0..(samples - 1)]
                              in (r / samplesD, g / samplesD, b / samplesD)
   -- sin (fromIntegral (i ^ (2 :: Int) + j ^ (2 :: Int)) :: Double)
 {-# INLINE arrLightIx2 #-}
@@ -128,6 +129,6 @@ someFunc = do
 
   let world = World $ fromListN' [(Sphere (fromListN' [0, 0, -1]) 0.5), 
                                   (Sphere (fromListN' [0, -100.5, -1]) 100)]
-      arr = arrLightIx2 Par (400 :. 800) world stdGen 100
+      arr = arrLightIx2 (800 :. 1600) world 100
       img = computeAs S $ fmap (uncurry3 PixelRGB) $ (delay arr)
   writeImage "files/light.png" (img :: Array S Ix2 (Pixel RGB Double))
