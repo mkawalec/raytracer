@@ -1,0 +1,76 @@
+-- This file has been generated from package.yaml by hpack version 0.28.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: b8a3d904993655c90b403093965645a6b1cbbd7dbdcf2408f7497eb6dd35a1cb
+
+name:           raytracer
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/raytracer#readme>
+homepage:       https://github.com/mkawalec/raytracer#readme
+bug-reports:    https://github.com/mkawalec/raytracer/issues
+author:         Michał Kawalec <michal@monad.cat>
+maintainer:     Michał Kawalec
+copyright:      2018 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+cabal-version:  >= 1.10
+extra-source-files:
+    ChangeLog.md
+    README.md
+
+source-repository head
+  type: git
+  location: https://github.com/mkawalec/raytracer
+
+library
+  exposed-modules:
+      Lib
+  other-modules:
+      Paths_raytracer
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , deepseq ==1.4.*
+    , massiv ==0.1.6.*
+    , massiv-io ==0.1.4.*
+    , random ==1.1.*
+    , utility-ht ==0.0.*
+  default-language: Haskell2010
+
+executable raytracer-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_raytracer
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2
+  build-depends:
+      base >=4.7 && <5
+    , deepseq ==1.4.*
+    , massiv ==0.1.6.*
+    , massiv-io ==0.1.4.*
+    , random ==1.1.*
+    , raytracer
+    , utility-ht ==0.0.*
+  default-language: Haskell2010
+
+test-suite raytracer-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_raytracer
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , deepseq ==1.4.*
+    , massiv ==0.1.6.*
+    , massiv-io ==0.1.4.*
+    , random ==1.1.*
+    , raytracer
+    , utility-ht ==0.0.*
+  default-language: Haskell2010

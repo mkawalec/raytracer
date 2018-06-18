@@ -1,0 +1,54 @@
+name:                raytracer
+version:             0.1.0.0
+github:              "mkawalec/raytracer"
+license:             BSD3
+author:              "Michał Kawalec <michal@monad.cat>"
+maintainer:          "Michał Kawalec"
+copyright:           "2018 Author name here"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/raytracer#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- massiv == 0.1.6.*
+- massiv-io == 0.1.4.*
+- utility-ht == 0.0.*
+- deepseq == 1.4.*
+- random == 1.1.*
+
+library:
+  source-dirs: src
+
+executables:
+  raytracer-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -O2
+    dependencies:
+    - raytracer
+
+tests:
+  raytracer-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - raytracer
