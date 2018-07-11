@@ -25,8 +25,6 @@ data Ray = Ray
   , direction :: !V3
   } deriving (Eq, Show)
 
--- TODO: All of the (Pixel RGB Double) that aren't actual color, but points in 3D space must be
--- switched to this data type, which should implement Num for convenience.
 data V3 = V3 {-# UNPACK #-} !Double  {-# UNPACK #-} !Double {-# UNPACK #-} !Double
   deriving (Show, Eq, Ord, Generic)
 
@@ -145,11 +143,11 @@ scatter gen ray@(Ray origin direction) (HitResult _ p normal (Metal albedo fuzz)
 {-# INLINE scatter #-}
 
 randomInUnitSphere :: StdGen -> V3
-randomInUnitSphere gen = if dot p p < 1 then p else randomInUnitSphere g3
+randomInUnitSphere gen = unitVector p
   where (v1, g1) = random gen
         (v2, g2) = random g1
-        (v3, g3) = random g2
-        p = 2.0 * (V3 v1 v2 v3) - 1
+        (v3, _) = random g2
+        p = asV3 2.0 * (V3 v1 v2 v3) - asV3 1
 {-# INLINE randomInUnitSphere #-}
 
 arrLightIx2 :: Hitable a => Ix2 -> World a -> Int -> Image S RGB Double
@@ -191,5 +189,5 @@ someFunc = do
           , (Sphere (V3 1        0 (-1)) 0.5 (Metal (V3 0.8 0.6 0.2) 0.3))
           , (Sphere (V3 (-1)     0 (-1)) 0.5 (Metal (V3 0.8 0.6 0.8) 1.0))
           ]
-      img = arrLightIx2 (300 :. 600) world 100
+      img = arrLightIx2 (800 :. 1600) world 100
   writeImage "light.png" img
