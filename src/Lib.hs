@@ -21,29 +21,46 @@ import           Graphics.ColorSpace
 import           System.Random
 
 data Ray = Ray
-  { origin    :: !(Pixel RGB Double)
-  , direction :: !(Pixel RGB Double)
+  { origin    :: !V3
+  , direction :: !V3
   } deriving (Eq, Show)
 
 -- TODO: All of the (Pixel RGB Double) that aren't actual color, but points in 3D space must be
 -- switched to this data type, which should implement Num for convenience.
 data V3 = V3 {-# UNPACK #-} !Double  {-# UNPACK #-} !Double {-# UNPACK #-} !Double
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord, Generic)
 
-pointAtParameter :: Ray -> Double -> Pixel RGB Double
-pointAtParameter !(Ray a b) !t =  a + fmap (t *) b
+instance Num V3 where
+  (V3 a1 a2 a3) + (V3 b1 b2 b3) = V3 (a1 + b1) (a2 + b2) (a3 + b3)
+  (V3 a1 a2 a3) - (V3 b1 b2 b3) = V3 (a1 - b1) (a2 - b2) (a3 - b3)
+  (V3 a1 a2 a3) * (V3 b1 b2 b3) = V3 (a1 * b1) (a2 * b2) (a3 * b3)
+  negate (V3 a1 a2 a3) = V3 (-a1) (-a2) (-a3)
+  abs v = v    -- for the lolz
+  signum v = v -- as well
+  fromInteger i = let asDouble = fromIntegral i in V3 asDouble asDouble asDouble
 
-unitVector :: Pixel RGB Double -> Pixel RGB Double
-unitVector !v = fmap (/ sqrt (dot v v)) v
+instance Fractional V3 where
+  (V3 a1 a2 a3) / (V3 b1 b2 b3) = V3 (a1 / b1) (a2 / b2) (a3 / b3)
+  fromRational r = let asD = fromRational r in (V3 asD asD asD)
+
+asV3 :: Double -> V3
+asV3 a = V3 a a a
+
+
+pointAtParameter :: Ray -> Double -> V3
+pointAtParameter !(Ray a b) !t =  a + (asV3 t) * b
+
+unitVector :: V3 -> V3
+unitVector !v = v / (asV3 $ sqrt (dot v v))
 {-# INLINE unitVector #-}
 
-dot :: Pixel RGB Double -> Pixel RGB Double -> Double
-dot !a !b = L.foldl' (+) 0 (a * b)
+dot :: V3 -> V3 -> Double
+dot !a !b = let (V3 x y z) = (a * b) in x + y + z
 {-# INLINE dot #-}
 
 color :: Hitable a => Ray -> a -> StdGen -> Int -> Pixel RGB Double
 color r@(Ray o d) world gen callCount =
-  let unitDirection@(PixelRGB x _ _) = unitVector d
+  let unitDirection@(V3 x _ _) = unitVector d
       {-# INLINE unitDirection #-}
       t = 0.5 * x + 1.0
       skyColor = pure (1.0 - t) + pure t * PixelRGB 0.5 0.7 1.0
@@ -64,19 +81,19 @@ color r@(Ray o d) world gen callCount =
 {-# INLINE color #-}
 
 data Material
-  = Metal { albedo :: Pixel RGB Double }
+  = Metal { albedo :: Pixel RGB Double, fuzz :: Double }
   | Lambertian { albedo :: Pixel RGB Double }
   deriving (Show, Eq, Ord, Generic)
 
 data HitResult = HitResult
   { t :: !Double
-  , p :: !(Pixel RGB Double)
-  , normal :: !(Pixel RGB Double)
+  , p :: !V3
+  , normal :: !V3
   , material :: Material
   } deriving (Eq, Show, Ord)
 
 data Sphere = Sphere
-  { center :: !(Pixel RGB Double)
+  { center :: !V3
   , radius :: !Double
   , material :: Material
   } deriving (Eq, Show, Ord, Generic)
@@ -101,7 +118,7 @@ instance Hitable Sphere where
     then Nothing
     else L.find (\root -> root < tMax && root > tMin) [negativeRoot, positiveRoot] >>=
          (\root -> let p = pointAtParameter ray root
-                       normal = (p - center) / pure r
+                       normal = (p - center) / (asV3 r)
                    in Just $ HitResult root p normal mat)
     where oc = origin - center
           a  = dot direction direction
@@ -117,35 +134,31 @@ scatter gen ray@(Ray origin direction) (HitResult _ p normal (Lambertian albedo)
   let target = p + normal + randomInUnitSphere gen
       scattered = Ray p (target - p)
   in Just (albedo, scattered)
-scatter gen ray@(Ray origin direction) (HitResult _ p normal (Metal albedo)) =
-  let reflect :: Pixel RGB Double -> Pixel RGB Double -> Pixel RGB Double
-      reflect v n = v - pure (2 * dot v n) * n
+scatter gen ray@(Ray origin direction) (HitResult _ p normal (Metal albedo fuzz)) =
+  let reflect :: V3 -> V3 -> V3
+      reflect v n = v - asV3 (2 * dot v n) * n
 
       reflected = reflect (unitVector direction) normal
-      scattered = Ray p reflected
+      scattered = Ray p (reflected + (asV3 fuzz) * randomInUnitSphere gen)
   in if (dot reflected normal) > 0 then Just (albedo, scattered)
                                    else Nothing
 {-# INLINE scatter #-}
 
--- OBSERVATION: seems like a somewhat inefficient way to generate a point.
-randomInUnitSphere :: StdGen -> Pixel RGB Double
+randomInUnitSphere :: StdGen -> V3
 randomInUnitSphere gen = if dot p p < 1 then p else randomInUnitSphere g3
-  where (r, g1) = random gen
-        (g, g2) = random g1
-        (b, g3) = random g2
-        p = 2.0 * (PixelRGB r g b) - 1
+  where (v1, g1) = random gen
+        (v2, g2) = random g1
+        (v3, g3) = random g2
+        p = 2.0 * (V3 v1 v2 v3) - 1
 {-# INLINE randomInUnitSphere #-}
 
 arrLightIx2 :: Hitable a => Ix2 -> World a -> Int -> Image S RGB Double
 arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
   compute $ toInterleaved $ makeArrayR D Par arrSz lightFunc
-  where origin = PixelRGB 0 0 0
-        vertical :: Pixel RGB Double
-        vertical = PixelRGB 0.0 2.0 0.0
-        horizontal :: Pixel RGB Double
-        horizontal = PixelRGB 4.0 0.0 0.0
-        lowerLeft :: Pixel RGB Double
-        lowerLeft = PixelRGB (-2.0) (-1.0) (-1.0)
+  where origin = V3 0 0 0
+        vertical = V3 0 2 0
+        horizontal = V3 4 0 0
+        lowerLeft = V3 (-2) (-1) (-1)
         samplesD = fromIntegral samples
 
         castRay :: Int -> Int -> Pixel RGB Double -> Int -> Pixel RGB Double
@@ -157,8 +170,8 @@ arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
               u = (r1 + fromIntegral i) / fromIntegral sizeX
               v = (r2 + fromIntegral (sizeY - 1 - j)) / fromIntegral sizeY
 
-              rayX = fmap (u *) horizontal
-              rayY = fmap (v *) vertical
+              rayX = asV3 u * horizontal
+              rayY = asV3 v * vertical
               ray = Ray origin (lowerLeft + rayX + rayY)
               col = color ray world g2 0
           in rgb + col
@@ -176,10 +189,10 @@ someFunc = do
   let world =
         World $
         fromList Seq
-          [ (Sphere (PixelRGB 0        0 (-1)) 0.5 (Lambertian (PixelRGB 0.8 0.3 0.3)))
-          , (Sphere (PixelRGB 0 (-100.5) (-1)) 100 (Lambertian (PixelRGB 0.8 0.8 0.0)))
-          , (Sphere (PixelRGB 1        0 (-1)) 0.5 (Metal (PixelRGB 0.8 0.6 0.2)))
-          , (Sphere (PixelRGB (-1)     0 (-1)) 0.5 (Metal (PixelRGB 0.8 0.6 0.8)))
+          [ (Sphere (V3 0        0 (-1)) 0.5 (Lambertian (PixelRGB 0.8 0.3 0.3)))
+          , (Sphere (V3 0 (-100.5) (-1)) 100 (Lambertian (PixelRGB 0.8 0.8 0.0)))
+          , (Sphere (V3 1        0 (-1)) 0.5 (Metal (PixelRGB 0.8 0.6 0.2) 0.3))
+          , (Sphere (V3 (-1)     0 (-1)) 0.5 (Metal (PixelRGB 0.8 0.6 0.8) 1.0))
           ]
-      img = arrLightIx2 (800 :. 1600) world 100
+      img = arrLightIx2 (300 :. 600) world 100
   writeImage "light.png" img
