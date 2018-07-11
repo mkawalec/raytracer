@@ -21,11 +21,14 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
-- massiv == 0.1.6.*
+- massiv == 0.2.0.*
 - massiv-io == 0.1.4.*
 - utility-ht == 0.0.*
 - deepseq == 1.4.*
 - random == 1.1.*
+- pcg-random == 0.1.3.*
+- transformers == 0.5.*
+- data-binary-ieee754 == 0.4.*
 
 library:
   source-dirs: src
