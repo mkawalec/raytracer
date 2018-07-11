@@ -58,14 +58,14 @@ dot :: V3 -> V3 -> Double
 dot !a !b = let (V3 x y z) = (a * b) in x + y + z
 {-# INLINE dot #-}
 
-color :: Hitable a => Ray -> a -> StdGen -> Int -> Pixel RGB Double
+color :: Hitable a => Ray -> a -> StdGen -> Int -> V3
 color r@(Ray o d) world gen callCount =
   let unitDirection@(V3 x _ _) = unitVector d
       {-# INLINE unitDirection #-}
       t = 0.5 * x + 1.0
-      skyColor = pure (1.0 - t) + pure t * PixelRGB 0.5 0.7 1.0
+      skyColor = asV3 (1.0 - t) + asV3 t * V3 0.5 0.7 1.0
 
-      sphereColor :: HitResult -> Pixel RGB Double
+      sphereColor :: HitResult -> V3
       sphereColor hit =
         let (g1, g2) = split gen
         in case scatter g1 r hit of
@@ -81,8 +81,8 @@ color r@(Ray o d) world gen callCount =
 {-# INLINE color #-}
 
 data Material
-  = Metal { albedo :: Pixel RGB Double, fuzz :: Double }
-  | Lambertian { albedo :: Pixel RGB Double }
+  = Metal { albedo :: V3, fuzz :: Double }
+  | Lambertian { albedo :: V3 }
   deriving (Show, Eq, Ord, Generic)
 
 data HitResult = HitResult
@@ -129,7 +129,7 @@ instance Hitable Sphere where
           negativeRoot = (-b - (sqrt $ b*b - a*c)) / a
   {-# INLINE hit #-}
 
-scatter :: StdGen -> Ray -> HitResult -> Maybe (Pixel RGB Double, Ray)
+scatter :: StdGen -> Ray -> HitResult -> Maybe (V3, Ray)
 scatter gen ray@(Ray origin direction) (HitResult _ p normal (Lambertian albedo)) =
   let target = p + normal + randomInUnitSphere gen
       scattered = Ray p (target - p)
@@ -161,7 +161,7 @@ arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
         lowerLeft = V3 (-2) (-1) (-1)
         samplesD = fromIntegral samples
 
-        castRay :: Int -> Int -> Pixel RGB Double -> Int -> Pixel RGB Double
+        castRay :: Int -> Int -> V3 -> Int -> V3
         castRay !i !j !rgb !sample =
           let idx = 2 * (i + 1) * (j + 1) * (sample + 1)
               generator = mkStdGen idx
@@ -175,24 +175,21 @@ arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
               ray = Ray origin (lowerLeft + rayX + rayY)
               col = color ray world g2 0
           in rgb + col
-        lightFunc arrI@(j :. i) = let rgb = L.foldl' (castRay i j) 0 [0..(samples - 1)]
-                                  in (sqrt . (/ samplesD)) <$> rgb
-  -- sin (fromIntegral (i ^ (2 :: Int) + j ^ (2 :: Int)) :: Double)
+        lightFunc arrI@(j :. i) = 
+          let (V3 r g b) = L.foldl' (castRay i j) 0 [0..(samples - 1)]
+          in PixelRGB (sqrt $ r / samplesD) (sqrt $ g / samplesD) (sqrt $ b / samplesD)
 {-# INLINE arrLightIx2 #-}
 
--- Use NFData for all these tight loops
-
--- PixelRGB 1 0 0
 someFunc :: IO ()
 someFunc = do
   stdGen <- getStdGen
   let world =
         World $
         fromList Seq
-          [ (Sphere (V3 0        0 (-1)) 0.5 (Lambertian (PixelRGB 0.8 0.3 0.3)))
-          , (Sphere (V3 0 (-100.5) (-1)) 100 (Lambertian (PixelRGB 0.8 0.8 0.0)))
-          , (Sphere (V3 1        0 (-1)) 0.5 (Metal (PixelRGB 0.8 0.6 0.2) 0.3))
-          , (Sphere (V3 (-1)     0 (-1)) 0.5 (Metal (PixelRGB 0.8 0.6 0.8) 1.0))
+          [ (Sphere (V3 0        0 (-1)) 0.5 (Lambertian (V3 0.8 0.3 0.3)))
+          , (Sphere (V3 0 (-100.5) (-1)) 100 (Lambertian (V3 0.8 0.8 0.0)))
+          , (Sphere (V3 1        0 (-1)) 0.5 (Metal (V3 0.8 0.6 0.2) 0.3))
+          , (Sphere (V3 (-1)     0 (-1)) 0.5 (Metal (V3 0.8 0.6 0.8) 1.0))
           ]
       img = arrLightIx2 (300 :. 600) world 100
   writeImage "light.png" img
