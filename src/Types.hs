@@ -1,5 +1,6 @@
 
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Types where
 import           Foreign.Storable
@@ -30,14 +31,14 @@ instance Storable V3 where
   sizeOf _    = 24
   alignment _ = 32
   {-# INLINE peekElemOff #-}
-  peekElemOff addr idx =
+  peekElemOff !addr !idx =
     let elemAddr = addr `plusPtr` (idx * sizeOf (undefined :: V3))
     in do
       v1 <- peek elemAddr
       v2 <- peek (elemAddr `plusPtr` 8)
       v3 <- peek (elemAddr `plusPtr` 16)
       return $ V3 v1 v2 v3
-  pokeElemOff addr idx elem@(V3 v1 v2 v3) = 
+  pokeElemOff !addr !idx !elem@(V3 v1 v2 v3) = 
     let elemAddr = addr `plusPtr` (idx * sizeOf elem)
     in do
       poke elemAddr v1
@@ -56,7 +57,7 @@ instance Storable Material where
   sizeOf _    = 40
   alignment _ = 48
   {-# INLINE peekElemOff #-}
-  peekElemOff addr idx = 
+  peekElemOff !addr !idx = 
     let elemAddr = addr `plusPtr` (idx * sizeOf (undefined :: Material))
         dataBeginAddr = elemAddr `plusPtr` 8
     in do
@@ -65,7 +66,7 @@ instance Storable Material where
         0 -> Metal <$> peek dataBeginAddr <*> peek (dataBeginAddr `plusPtr` 24)
         1 -> Lambertian <$> peek dataBeginAddr
         2 -> Dielectric <$> peek dataBeginAddr
-  pokeElemOff addr idx elem =
+  pokeElemOff !addr !idx !elem =
     let elemAddr = addr `plusPtr` (idx * sizeOf elem)
         dataBeginAddr = elemAddr `plusPtr` 8
     in case elem of

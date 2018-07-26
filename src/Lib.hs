@@ -11,7 +11,7 @@
 module  Lib (someFunc) where
 
 import           Control.DeepSeq (force, deepseq, NFData)
---import           Prelude hiding (Maybe(..))
+import           Prelude hiding (Maybe(..))
 import qualified Data.List as L
 import           Data.Massiv.Array as A
 import           Data.Massiv.Array.IO
@@ -23,7 +23,7 @@ import           Graphics.ColorSpace
 import           Foreign.Storable
 import           Foreign.Ptr (Ptr(..), plusPtr, castPtr)
 import           Data.Int (Int64)
---import           Data.Maybe.Unpacked
+import           Data.Maybe.Unpacked
 import Language.Haskell.TH
 
 import PCG
@@ -32,6 +32,7 @@ import Types
 
 asV3 :: Double -> V3
 asV3 a = V3 a a a
+{-# INLINE asV3 #-}
 
 
 pointAtParameter :: V3 -> V3 -> Double -> V3
@@ -143,33 +144,35 @@ getRay gen s t cam = let (V3 x y _) = (asV3 $ lensRadius cam) * randomInUnitDisk
 class Hitable a where
   hit :: Double -> Double -> a -> Ray -> Maybe HitResult
 
-instance Hitable (World Sphere) where
-  hit tMin tMax (World elems) (Ray o d) = A.foldlS combine Nothing elems
-    where combine Nothing elem                      = hitSphere tMin tMax elem o d
-          combine (Just r@(HitResult t _ _ _)) elem = case hitSphere tMin t elem o d of
+instance (Hitable a, Storable a) => Hitable (World a) where
+  hit tMin tMax (World elems) !ray = A.foldlS combine Nothing elems
+    where combine Nothing elem                      = hit tMin tMax elem ray
+          combine (Just r@(HitResult t _ _ _)) elem = case hit tMin t elem ray of
             Nothing -> Just r
             Just res -> Just res
+  {-# INLINE hit #-}
 
-hitSphere :: Double -> Double -> Sphere -> V3 -> V3 -> Maybe HitResult
-hitSphere tMin tMax (Sphere center r mat) !origin !direction =
-  if disc < 0
-  then Nothing
-  else let root = if negativeRoot < tMax && negativeRoot > tMin
-                    then Just negativeRoot
-                    else if positiveRoot < tMax && positiveRoot > tMin
-                          then Just positiveRoot
-                          else Nothing
-       in root >>= \root -> 
-                    let p = pointAtParameter origin direction root
-                        normal = (p - center) / (asV3 r)
-                    in Just $! HitResult root p normal mat
-  where oc = origin - center
-        a  = dot direction direction
-        b = dot oc direction
-        c = (dot oc oc) - r * r
-        disc = b * b - a * c
-        positiveRoot = (-b + (sqrt $ b*b - a*c)) / a
-        negativeRoot = (-b - (sqrt $ b*b - a*c)) / a
+instance Hitable Sphere where
+  hit tMin tMax (Sphere center r mat) (Ray origin direction) =
+    if disc < 0
+    then Nothing
+    else let root = if negativeRoot < tMax && negativeRoot > tMin
+                      then Just negativeRoot
+                      else if positiveRoot < tMax && positiveRoot > tMin
+                            then Just positiveRoot
+                            else Nothing
+         in root >>= \root -> 
+                      let p = pointAtParameter origin direction root
+                          normal = (p - center) / (asV3 r)
+                      in Just $! HitResult root p normal mat
+    where oc = origin - center
+          a  = dot direction direction
+          b = dot oc direction
+          c = (dot oc oc) - r * r
+          disc = b * b - a * c
+          positiveRoot = (-b + (sqrt $ b*b - a*c)) / a
+          negativeRoot = (-b - (sqrt $ b*b - a*c)) / a
+  {-# INLINE hit #-}
   
 reflect :: V3 -> V3 -> V3
 reflect v n = v - asV3 (2 * dot v n) * n
