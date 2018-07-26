@@ -6,10 +6,12 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module  Lib (someFunc) where
 
-import           Control.DeepSeq (force, deepseq)
+import           Control.DeepSeq (force, deepseq, NFData)
+--import           Prelude hiding (Maybe(..))
 import qualified Data.List as L
 import           Data.Massiv.Array as A
 import           Data.Massiv.Array.IO
@@ -18,36 +20,23 @@ import           Data.Tuple.HT (uncurry3)
 import qualified Debug.Trace as DT
 import           GHC.Generics (Generic)
 import           Graphics.ColorSpace
+import           Foreign.Storable
+import           Foreign.Ptr (Ptr(..), plusPtr, castPtr)
+import           Data.Int (Int64)
+--import           Data.Maybe.Unpacked
+import Language.Haskell.TH
 
 import PCG
+import Types
 
-data Ray = Ray
-  { origin    :: !V3
-  , direction :: !V3
-  } deriving (Eq, Show)
-
-data V3 = V3 {-# UNPACK #-} !Double  {-# UNPACK #-} !Double {-# UNPACK #-} !Double
-  deriving (Show, Eq, Ord, Generic)
-
-instance Num V3 where
-  (V3 a1 a2 a3) + (V3 b1 b2 b3) = V3 (a1 + b1) (a2 + b2) (a3 + b3)
-  (V3 a1 a2 a3) - (V3 b1 b2 b3) = V3 (a1 - b1) (a2 - b2) (a3 - b3)
-  (V3 a1 a2 a3) * (V3 b1 b2 b3) = V3 (a1 * b1) (a2 * b2) (a3 * b3)
-  negate (V3 a1 a2 a3) = V3 (-a1) (-a2) (-a3)
-  abs v = v    -- for the lolz
-  signum v = v -- as well
-  fromInteger i = let asDouble = fromIntegral i in V3 asDouble asDouble asDouble
-
-instance Fractional V3 where
-  (V3 a1 a2 a3) / (V3 b1 b2 b3) = V3 (a1 / b1) (a2 / b2) (a3 / b3)
-  fromRational r = let asD = fromRational r in (V3 asD asD asD)
 
 asV3 :: Double -> V3
 asV3 a = V3 a a a
 
 
-pointAtParameter :: Ray -> Double -> V3
-pointAtParameter !(Ray a b) !t =  a + (asV3 t) * b
+pointAtParameter :: V3 -> V3 -> Double -> V3
+pointAtParameter !a !b !t =  a + (asV3 t) * b
+{-# INLINE pointAtParameter #-}
 
 unitVector :: V3 -> V3
 unitVector !v = v / (asV3 $ v3len v)
@@ -67,10 +56,9 @@ v3len :: V3 -> Double
 v3len v = sqrt $ dot v v
 {-# INLINE v3len #-}
 
-color :: Hitable a => Ray -> a -> PCG32 -> Int -> V3
-color r@(Ray o d) world gen callCount =
+color :: (Hitable a) => Ray -> a -> PCG32 -> Int -> V3
+color !r@(Ray o d) world gen callCount =
   let unitDirection@(V3 x _ _) = unitVector d
-      {-# INLINE unitDirection #-}
       t = 0.5 * x + 1.0
       skyColor = asV3 (1.0 - t) + asV3 t * V3 0.5 0.7 1.0
 
@@ -89,24 +77,29 @@ color r@(Ray o d) world gen callCount =
                        else 0
 {-# INLINE color #-}
 
-data Material
-  = Metal { albedo :: V3, fuzz :: Double }
-  | Lambertian { albedo :: V3 }
-  | Dielectric { refIndex :: Double }
-  deriving (Show, Eq, Ord, Generic)
 
 data HitResult = HitResult
-  { t :: !Double
-  , p :: !V3
-  , normal :: !V3
-  , material :: Material
+  { t :: {-# UNPACK #-} !Double
+  , p :: {-# UNPACK #-} !V3
+  , normal :: {-# UNPACK #-} !V3
+  , material :: !Material
   } deriving (Eq, Show, Ord)
 
-data Sphere = Sphere
-  { center :: !V3
-  , radius :: !Double
-  , material :: Material
-  } deriving (Eq, Show, Ord, Generic)
+instance Storable Sphere where
+  sizeOf _ = $(return . LitE . IntegerL . fromIntegral $ sizeOf (undefined :: V3) + sizeOf (undefined :: Double) + sizeOf (undefined :: Material))
+  alignment _ = 16 + (sizeOf (undefined :: Sphere)) `rem` 16
+  {-# INLINE peekElemOff #-}
+  peekElemOff addr idx =
+    let elemAddr = addr `plusPtr` (idx * sizeOf (undefined :: Sphere))
+        rAddr = elemAddr `plusPtr` sizeOf (undefined :: V3)
+        mAddr = rAddr `plusPtr` sizeOf (undefined :: Double)
+    in Sphere <$> peek elemAddr <*> peek rAddr <*> peek mAddr
+  pokeElemOff addr idx elem@(Sphere c r m) = 
+    let elemAddr = addr `plusPtr` (idx * sizeOf elem)
+    in do
+      poke elemAddr c
+      poke (elemAddr `plusPtr` sizeOf c) r
+      poke (elemAddr `plusPtr` sizeOf c `plusPtr` sizeOf r) m
 
 newtype World a = World (Array B Ix1 a)
 
@@ -150,49 +143,51 @@ getRay gen s t cam = let (V3 x y _) = (asV3 $ lensRadius cam) * randomInUnitDisk
 class Hitable a where
   hit :: Double -> Double -> a -> Ray -> Maybe HitResult
 
-instance Hitable a => Hitable (World a) where
-  hit tMin tMax (World elems) ray = A.foldlS combine Nothing elems
-    where combine Nothing elem                      = hit tMin tMax elem ray
-          combine (Just r@(HitResult t _ _ _)) elem = case hit tMin t elem ray of
+instance Hitable (World Sphere) where
+  hit tMin tMax (World elems) (Ray o d) = A.foldlS combine Nothing elems
+    where combine Nothing elem                      = hitSphere tMin tMax elem o d
+          combine (Just r@(HitResult t _ _ _)) elem = case hitSphere tMin t elem o d of
             Nothing -> Just r
             Just res -> Just res
-          {-# INLINE combine #-}
-  {-# INLINE hit #-}
 
-instance Hitable Sphere where
-  hit tMin tMax (Sphere center r mat) ray@(Ray origin direction) =
-    if disc < 0
-    then Nothing
-    else L.find (\root -> root < tMax && root > tMin) [negativeRoot, positiveRoot] >>=
-         (\root -> let p = pointAtParameter ray root
-                       normal = (p - center) / (asV3 r)
-                   in Just $ HitResult root p normal mat)
-    where oc = origin - center
-          a  = dot direction direction
-          b = dot oc direction
-          c = (dot oc oc) - r * r
-          disc = b * b - a * c
-          positiveRoot = (-b + (sqrt $ b*b - a*c)) / a
-          negativeRoot = (-b - (sqrt $ b*b - a*c)) / a
-  {-# INLINE hit #-}
+hitSphere :: Double -> Double -> Sphere -> V3 -> V3 -> Maybe HitResult
+hitSphere tMin tMax (Sphere center r mat) !origin !direction =
+  if disc < 0
+  then Nothing
+  else let root = if negativeRoot < tMax && negativeRoot > tMin
+                    then Just negativeRoot
+                    else if positiveRoot < tMax && positiveRoot > tMin
+                          then Just positiveRoot
+                          else Nothing
+       in root >>= \root -> 
+                    let p = pointAtParameter origin direction root
+                        normal = (p - center) / (asV3 r)
+                    in Just $! HitResult root p normal mat
+  where oc = origin - center
+        a  = dot direction direction
+        b = dot oc direction
+        c = (dot oc oc) - r * r
+        disc = b * b - a * c
+        positiveRoot = (-b + (sqrt $ b*b - a*c)) / a
+        negativeRoot = (-b - (sqrt $ b*b - a*c)) / a
   
 reflect :: V3 -> V3 -> V3
 reflect v n = v - asV3 (2 * dot v n) * n
 {-# INLINE reflect #-}
 
 scatter :: PCG32 -> Ray -> HitResult -> Maybe (V3, Ray)
-scatter gen ray@(Ray origin direction) (HitResult _ p normal (Lambertian albedo)) =
+scatter gen !ray@(Ray origin direction) (HitResult _ p normal (Lambertian albedo)) =
   let target = p + normal + randomInUnitSphere gen
       scattered = Ray p (target - p)
   in Just (albedo, scattered)
 
-scatter gen ray@(Ray origin direction) (HitResult _ p normal (Metal albedo fuzz)) =
+scatter gen !ray@(Ray origin direction) (HitResult _ p normal (Metal albedo fuzz)) =
   let reflected = reflect (unitVector direction) normal
       scattered = Ray p (reflected + (asV3 fuzz) * randomInUnitSphere gen)
   in if (dot reflected normal) > 0 then Just (albedo, scattered)
                                    else Nothing
 
-scatter gen ray@(Ray origin direction) (HitResult _ p normal (Dielectric refIdx)) =
+scatter gen !ray@(Ray origin direction) (HitResult _ p normal (Dielectric refIdx)) =
   let reflected = reflect direction normal
       attenuation = asV3 1.0
 
@@ -247,9 +242,9 @@ randomInUnitDisk gen =
 
 
 
-arrLightIx2 :: Hitable a => Ix2 -> World a -> Int -> Image S RGB Double
+arrLightIx2 :: Ix2 -> World Sphere -> Int -> Image S RGB Double
 arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
-  compute $ toInterleaved $ makeArrayR D Par arrSz lightFunc
+  compute $ makeArrayR D Par arrSz lightFunc
   where lookFrom = V3 13 2 3
         lookAt = V3 0 0 0
         aperture = 0.1
@@ -277,6 +272,7 @@ arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
         lightFunc arrI@(j :. i) = 
           let (V3 r g b) = L.foldl' (castRay i j) 0 [0..(samples - 1)]
           in PixelRGB (sqrt $ r / samplesD) (sqrt $ g / samplesD) (sqrt $ b / samplesD)
+        {-# INLINE lightFunc #-}
 {-# INLINE arrLightIx2 #-}
 
 randDoubles :: PCG32 -> Int -> ([Double], PCG32)
@@ -324,5 +320,5 @@ someFunc :: IO ()
 someFunc = do          
   let stdGen = newPCG32 1337 1337
       world = generateWorld stdGen
-      img = arrLightIx2 (900 :. 1600) world 100
+      img = arrLightIx2 (100 :. 200) world 100
   writeImage "light.png" img

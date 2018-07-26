@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: e60df77fd018220d5826a983e86ca22dfb8ca165d4091f55c8b2c9c9b66ae07f
+-- hash: eca09645837e1a07a48b6bcdbae2b4ea3986a266f2afa9409961c34479180975
 
 name:           raytracer
 version:        0.1.0.0
@@ -28,6 +28,7 @@ library
   exposed-modules:
       Lib
       PCG
+      Types
   other-modules:
       Paths_raytracer
   hs-source-dirs:
@@ -40,7 +41,9 @@ library
     , massiv-io ==0.1.4.*
     , pcg-random ==0.1.3.*
     , random ==1.1.*
+    , template-haskell ==2.13.*
     , transformers ==0.5.*
+    , unpacked-maybe ==0.1.*
     , utility-ht ==0.0.*
   default-language: Haskell2010
 
@@ -50,7 +53,7 @@ executable raytracer-exe
       Paths_raytracer
   hs-source-dirs:
       app
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2 -funbox-strict-fields
   build-depends:
       base >=4.7 && <5
     , data-binary-ieee754 ==0.4.*
@@ -60,7 +63,9 @@ executable raytracer-exe
     , pcg-random ==0.1.3.*
     , random ==1.1.*
     , raytracer
+    , template-haskell ==2.13.*
     , transformers ==0.5.*
+    , unpacked-maybe ==0.1.*
     , utility-ht ==0.0.*
   default-language: Haskell2010
 
@@ -81,6 +86,8 @@ test-suite raytracer-test
     , pcg-random ==0.1.3.*
     , random ==1.1.*
     , raytracer
+    , template-haskell ==2.13.*
     , transformers ==0.5.*
+    , unpacked-maybe ==0.1.*
     , utility-ht ==0.0.*
   default-language: Haskell2010
