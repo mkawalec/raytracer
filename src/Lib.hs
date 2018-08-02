@@ -7,6 +7,8 @@
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module  Lib (someFunc) where
 
@@ -57,7 +59,7 @@ v3len :: V3 -> Double
 v3len v = sqrt $ dot v v
 {-# INLINE v3len #-}
 
-color :: (Hitable a) => Ray -> a -> PCG32 -> Int -> V3
+color :: (Hitable a) => Ray -> (Hit a) -> PCG32 -> Int -> V3
 color !r@(Ray o d) world gen callCount =
   let unitDirection@(V3 x _ _) = unitVector d
       t = 0.5 * x + 1.0
@@ -76,7 +78,6 @@ color !r@(Ray o d) world gen callCount =
      Just hitResult -> if callCount < 50
                        then sphereColor hitResult
                        else 0
-{-# INLINE color #-}
 
 
 data HitResult = HitResult
@@ -86,23 +87,6 @@ data HitResult = HitResult
   , material :: !Material
   } deriving (Eq, Show, Ord)
 
-instance Storable Sphere where
-  sizeOf _ = $(return . LitE . IntegerL . fromIntegral $ sizeOf (undefined :: V3) + sizeOf (undefined :: Double) + sizeOf (undefined :: Material))
-  alignment _ = 16 + (sizeOf (undefined :: Sphere)) `rem` 16
-  {-# INLINE peekElemOff #-}
-  peekElemOff addr idx =
-    let elemAddr = addr `plusPtr` (idx * sizeOf (undefined :: Sphere))
-        rAddr = elemAddr `plusPtr` sizeOf (undefined :: V3)
-        mAddr = rAddr `plusPtr` sizeOf (undefined :: Double)
-    in Sphere <$> peek elemAddr <*> peek rAddr <*> peek mAddr
-  pokeElemOff addr idx elem@(Sphere c r m) = 
-    let elemAddr = addr `plusPtr` (idx * sizeOf elem)
-    in do
-      poke elemAddr c
-      poke (elemAddr `plusPtr` sizeOf c) r
-      poke (elemAddr `plusPtr` sizeOf c `plusPtr` sizeOf r) m
-
-newtype World a = World (Array B Ix1 a)
 
 data Camera = Camera {
   originC :: {-# UNPACK #-} !V3
@@ -141,18 +125,17 @@ getRay gen s t cam = let (V3 x y _) = (asV3 $ lensRadius cam) * randomInUnitDisk
                              (originC cam) - offset)
 {-# INLINE getRay #-}
 
-class Hitable a where
-  hit :: Double -> Double -> a -> Ray -> Maybe HitResult
-
-instance (Hitable a, Storable a) => Hitable (World a) where
-  hit tMin tMax (World elems) !ray = A.foldlS combine Nothing elems
-    where combine Nothing elem                      = hit tMin tMax elem ray
-          combine (Just r@(HitResult t _ _ _)) elem = case hit tMin t elem ray of
-            Nothing -> Just r
-            Just res -> Just res
-  {-# INLINE hit #-}
+class Hitable hitable where
+  data Hit hitable :: *
+  hit :: Double -> Double -> Hit hitable -> Ray -> Maybe HitResult
 
 instance Hitable Sphere where
+  data Hit Sphere = Sphere 
+    { center :: {-# UNPACK #-} !V3
+    , radius :: {-# UNPACK #-} !Double
+    , material :: Material
+    } deriving (Eq, Show, Ord, Generic)
+
   hit tMin tMax (Sphere center r mat) (Ray origin direction) =
     if disc < 0
     then Nothing
@@ -172,7 +155,38 @@ instance Hitable Sphere where
           disc = b * b - a * c
           positiveRoot = (-b + (sqrt $ b*b - a*c)) / a
           negativeRoot = (-b - (sqrt $ b*b - a*c)) / a
-  {-# INLINE hit #-}
+
+data Sphere
+data World a
+
+instance Storable (Hit Sphere) where
+  sizeOf _ = $(return . LitE . IntegerL . fromIntegral $ sizeOf (undefined :: V3) + sizeOf (undefined :: Double) + sizeOf (undefined :: Material))
+  alignment _ = 16 + (sizeOf (undefined :: (Hit Sphere))) `rem` 16
+  {-# INLINE peekElemOff #-}
+  peekElemOff addr idx =
+    let elemAddr = addr `plusPtr` (idx * sizeOf (undefined :: (Hit Sphere)))
+        rAddr = elemAddr `plusPtr` sizeOf (undefined :: V3)
+        mAddr = rAddr `plusPtr` sizeOf (undefined :: Double)
+    in Sphere <$> peek elemAddr <*> peek rAddr <*> peek mAddr
+  pokeElemOff addr idx elem@(Sphere c r m) = 
+    let elemAddr = addr `plusPtr` (idx * sizeOf elem)
+    in do
+      poke elemAddr c
+      poke (elemAddr `plusPtr` sizeOf c) r
+      poke (elemAddr `plusPtr` sizeOf c `plusPtr` sizeOf r) m
+
+
+
+instance Hitable (World (Hit Sphere)) where
+  data Hit (World (Hit Sphere)) = World (Array S Ix1 (Hit Sphere)) 
+
+  hit tMin tMax (World elems) !ray = A.foldlS combine Nothing elems
+    where combine Nothing elem                      = hit tMin tMax elem ray
+          combine (Just r@(HitResult t _ _ _)) elem = case hit tMin t elem ray of
+            Nothing -> Just r
+            Just res -> Just res
+
+
   
 reflect :: V3 -> V3 -> V3
 reflect v n = v - asV3 (2 * dot v n) * n
@@ -245,7 +259,7 @@ randomInUnitDisk gen =
 
 
 
-arrLightIx2 :: Ix2 -> World Sphere -> Int -> Image S RGB Double
+arrLightIx2 :: Ix2 -> Hit (World (Hit Sphere)) -> Int -> Image S RGB Double
 arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
   compute $ makeArrayR D Par arrSz lightFunc
   where lookFrom = V3 13 2 3
@@ -283,7 +297,7 @@ randDoubles gen howMany = L.foldl' genDouble ([], gen) [1..howMany]
   where genDouble (elems, gen') _ = let (x, gen'') = nextD gen'
                                     in (x:elems, gen'')
 
-generateWorld :: PCG32 -> World Sphere
+generateWorld :: PCG32 -> Hit (World (Hit Sphere))
 generateWorld gen = 
   let initialSpheres = [
         (Sphere (V3 0 (-1000) 0) 1000 (Lambertian (V3 0.5 0.5 0.5)))
@@ -292,7 +306,7 @@ generateWorld gen =
         , (Sphere (V3 4 1 0) 1 (Metal (V3 0.7 0.6 0.5) 0))
         ]
 
-      genElem :: (PCG32, [Sphere]) -> (Double, Double) -> (PCG32, [Sphere])
+      genElem :: (PCG32, [Hit Sphere]) -> (Double, Double) -> (PCG32, [Hit Sphere])
       genElem (g, world) (a, b) = 
         let (material, g2) = nextD g
             (x, g3) = nextD g2

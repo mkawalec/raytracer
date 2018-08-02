@@ -81,13 +81,6 @@ instance Storable Material where
         poke elemAddr (2 :: Int64)
         poke dataBeginAddr refIndex
 
-data Sphere = Sphere
-  { center :: {-# UNPACK #-} !V3
-  , radius :: {-# UNPACK #-} !Double
-  , material :: Material
-  } deriving (Eq, Show, Ord, Generic)
-
-instance NFData Sphere
 
 data Ray = Ray
   { origin    :: {-# UNPACK #-} !V3
