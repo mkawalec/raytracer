@@ -58,25 +58,23 @@ v3len :: V3 -> Double
 v3len v = sqrt $ dot v v
 {-# INLINE v3len #-}
 
-color :: (Hitable a) => Ray -> a -> PCG32 -> Int -> V3
-color !r@(Ray _ d) world gen callCount =
-  let unitDirection@(V3 x _ _) = unitVector d
-      t = 0.5 * x + 1.0
-      skyColor = asV3 (1.0 - t) + asV3 t * V3 0.5 0.7 1.0
-
-      sphereColor :: HitResult -> V3
-      sphereColor hit = 
-        let (g1, g2) = split gen
-        in case scatter g1 r hit of
-            Just (attenuation, scattered) ->
-              attenuation * color scattered world g2 (callCount + 1)
-            Nothing -> 0
-      {-# INLINE sphereColor #-}
-  in case hit 0.001 (1/0) world r of
-     Nothing -> skyColor
-     Just hitResult -> if callCount < 50
-                       then sphereColor hitResult
-                       else 0
+color :: (Hitable a) => a -> Ray -> PCG32 -> Int -> V3
+color world = go 1
+  where
+    go !acc !r@(Ray o d) gen callCount =
+      let unitDirection@(V3 x _ _) = unitVector d
+          t = 0.5 * x + 1.0
+          skyColor = acc * (asV3 (1.0 - t) + asV3 t * V3 0.5 0.7 1.0)
+          (g1, g2) = split gen
+       in case hit 0.001 (1 / 0) world r of
+            Nothing -> skyColor
+            Just hitResult ->
+              if callCount < 50
+                then case scatter g1 r hitResult of
+                       Just (attenuation, scattered) ->
+                         go (attenuation * acc) scattered g2 (callCount + 1)
+                       Nothing -> 0
+                else 0
 {-# INLINE color #-}
 
 
@@ -268,7 +266,7 @@ arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
               v = (r2 + fromIntegral (sizeY - 1 - j)) / fromIntegral sizeY
 
               ray = getRay g3 u v camera
-              col = color ray world g4 0
+              col = color world ray g4 0
           in rgb + col
         lightFunc arrI@(j :. i) = 
           let (V3 r g b) = L.foldl' (castRay i j) 0 [0..(samples - 1)]
