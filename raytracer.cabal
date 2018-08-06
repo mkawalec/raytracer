@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: bb1817cc8d2ac726ba94c280f42e41fc9da5dba1bb3cff9a4f1b9e16b7d7371d
+-- hash: b241b1359c54c1fede959eddeaed7e8a6f75d4eb1a35e83066c750064ea5a992
 
 name:           raytracer
 version:        0.1.0.0
@@ -39,10 +39,12 @@ library
     , deepseq ==1.4.*
     , massiv ==0.2.0.*
     , massiv-io ==0.1.4.*
+    , storable-record ==0.0.*
     , template-haskell ==2.13.*
     , transformers ==0.5.*
     , unpacked-maybe ==0.1.*
     , utility-ht ==0.0.*
+    , vector ==0.12.*
   default-language: Haskell2010
 
 executable raytracer-exe
@@ -51,7 +53,7 @@ executable raytracer-exe
       Paths_raytracer
   hs-source-dirs:
       app
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2 -fllvm -fmax-worker-args=100
+  ghc-options: -threaded -rtsopts -O2 -fllvm -fmax-worker-args=100 -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
     , data-binary-ieee754 ==0.4.*
@@ -59,10 +61,12 @@ executable raytracer-exe
     , massiv ==0.2.0.*
     , massiv-io ==0.1.4.*
     , raytracer
+    , storable-record ==0.0.*
     , template-haskell ==2.13.*
     , transformers ==0.5.*
     , unpacked-maybe ==0.1.*
     , utility-ht ==0.0.*
+    , vector ==0.12.*
   default-language: Haskell2010
 
 test-suite raytracer-test
@@ -72,7 +76,7 @@ test-suite raytracer-test
       Paths_raytracer
   hs-source-dirs:
       test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2 -fllvm -fmax-worker-args=100
   build-depends:
       base >=4.7 && <5
     , data-binary-ieee754 ==0.4.*
@@ -80,8 +84,10 @@ test-suite raytracer-test
     , massiv ==0.2.0.*
     , massiv-io ==0.1.4.*
     , raytracer
+    , storable-record ==0.0.*
     , template-haskell ==2.13.*
     , transformers ==0.5.*
     , unpacked-maybe ==0.1.*
     , utility-ht ==0.0.*
+    , vector ==0.12.*
   default-language: Haskell2010

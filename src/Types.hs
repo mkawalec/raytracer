@@ -1,9 +1,9 @@
-
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
 
 module Types where
 import           Foreign.Storable
+import qualified Foreign.Storable.Record as Store
 import           Foreign.Ptr (Ptr(..), plusPtr, castPtr)
 import           Data.Int (Int64)
 import           Control.DeepSeq (force, deepseq, NFData)
@@ -27,10 +27,11 @@ instance Fractional V3 where
   (V3 a1 a2 a3) / (V3 b1 b2 b3) = V3 (a1 / b1) (a2 / b2) (a3 / b3)
   fromRational r = let asD = fromRational r in (V3 asD asD asD)
 
+
+
 instance Storable V3 where
   sizeOf _    = 24
   alignment _ = 32
-  {-# INLINE peekElemOff #-}
   peekElemOff !addr !idx =
     let elemAddr = addr `plusPtr` (idx * sizeOf (undefined :: V3))
     in do
@@ -56,7 +57,6 @@ instance NFData Material
 instance Storable Material where
   sizeOf _    = 40
   alignment _ = 48
-  {-# INLINE peekElemOff #-}
   peekElemOff !addr !idx = 
     let elemAddr = addr `plusPtr` (idx * sizeOf (undefined :: Material))
         dataBeginAddr = elemAddr `plusPtr` 8
