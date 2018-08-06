@@ -29,6 +29,8 @@ dependencies:
 - data-binary-ieee754 == 0.4.*
 - unpacked-maybe == 0.1.*
 - template-haskell == 2.13.*
+- vector == 0.12.*
+- storable-record == 0.0.*
 
 library:
   source-dirs: src
@@ -40,10 +42,10 @@ executables:
     ghc-options:
     - -threaded
     - -rtsopts
-    - -with-rtsopts=-N
     - -O2
     - -fllvm
     - -fmax-worker-args=100
+    - -with-rtsopts=-N
     dependencies:
     - raytracer
 
@@ -55,5 +57,8 @@ tests:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -O2
+    - -fllvm
+    - -fmax-worker-args=100
     dependencies:
     - raytracer

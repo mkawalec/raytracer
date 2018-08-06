@@ -7,6 +7,7 @@
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_GHC -fmax-worker-args=20 #-}
 
 module  Lib (someFunc) where
 
@@ -87,18 +88,15 @@ data HitResult = HitResult
 instance Storable Sphere where
   sizeOf _ = $(return . LitE . IntegerL . fromIntegral $ sizeOf (undefined :: V3) + sizeOf (undefined :: Double) + sizeOf (undefined :: Material))
   alignment _ = 16 + (sizeOf (undefined :: Sphere)) `rem` 16
-  {-# INLINE peekElemOff #-}
-  peekElemOff addr idx =
-    let elemAddr = addr `plusPtr` (idx * sizeOf (undefined :: Sphere))
-        rAddr = elemAddr `plusPtr` sizeOf (undefined :: V3)
-        mAddr = rAddr `plusPtr` sizeOf (undefined :: Double)
-    in Sphere <$> peek elemAddr <*> peek rAddr <*> peek mAddr
-  pokeElemOff addr idx elem@(Sphere c r m) = 
-    let elemAddr = addr `plusPtr` (idx * sizeOf elem)
-    in do
-      poke elemAddr c
-      poke (elemAddr `plusPtr` sizeOf c) r
-      poke (elemAddr `plusPtr` sizeOf c `plusPtr` sizeOf r) m
+  peek !elemAddr =
+    let rAddr = castPtr $ elemAddr `plusPtr` sizeOf (undefined :: V3)
+        mAddr = castPtr $ rAddr `plusPtr` sizeOf (undefined :: Double)
+    in Sphere <$> peek (castPtr elemAddr) <*> peek rAddr <*> peek mAddr
+  poke !elemAddr !elem@(Sphere c r m) = 
+    do
+      poke (castPtr elemAddr) c
+      poke (castPtr $ elemAddr `plusPtr` sizeOf c) r
+      poke (castPtr $ elemAddr `plusPtr` sizeOf c `plusPtr` sizeOf r) m
 
 newtype World a = World (Array B Ix1 a)
 
@@ -142,7 +140,7 @@ getRay gen s t cam = let (V3 x y _) = (asV3 $ lensRadius cam) * randomInUnitDisk
 class Hitable a where
   hit :: Double -> Double -> a -> Ray -> Maybe HitResult
 
-instance (Hitable a, Storable a) => Hitable (World a) where
+instance (Hitable a, Storable a)  => Hitable (World a) where
   hit tMin tMax (World elems) !ray = A.foldlS combine Nothing elems
     where combine Nothing elem                      = hit tMin tMax elem ray
           combine (Just r@(HitResult t _ _ _)) elem = case hit tMin t elem ray of
@@ -314,12 +312,12 @@ generateWorld gen =
 
       randomSpheres = L.foldl' genElem (gen, [])
                       [(fromIntegral x, fromIntegral y) | x <- [-11..11], y <- [-11..11]] 
-  in World $ fromList Seq (initialSpheres ++ snd randomSpheres)
+  in World $ force $ fromList Seq (initialSpheres ++ snd randomSpheres)
       
 
 someFunc :: IO ()
 someFunc = do          
   let stdGen = newPCG32 1337 1337
       world = generateWorld stdGen
-      img = arrLightIx2 (100 :. 200) world 100
+      img = arrLightIx2 (10 :. 20) world 100
   writeImage "light.png" img
