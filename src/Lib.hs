@@ -7,7 +7,7 @@
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -fmax-worker-args=20 #-}
+{-# OPTIONS_GHC -fmax-worker-args=30 #-}
 
 module  Lib (someFunc) where
 
@@ -25,7 +25,8 @@ import           Foreign.Storable
 import           Foreign.Ptr (Ptr(..), plusPtr, castPtr)
 import           Data.Int (Int64)
 import           Data.Maybe.Unpacked
-import Language.Haskell.TH
+import           Language.Haskell.TH
+import           Data.Vector.Unboxed.Deriving (derivingUnbox)
 
 import PCG
 import Types
@@ -61,7 +62,7 @@ v3len v = sqrt $ dot v v
 color :: (Hitable a) => a -> Ray -> PCG32 -> Int -> V3
 color world = go 1
   where
-    go !acc !r@(Ray o d) gen callCount =
+    go acc r@(Ray _ d) gen callCount =
       let unitDirection@(V3 x _ _) = unitVector d
           t = 0.5 * x + 1.0
           skyColor = acc * (asV3 (1.0 - t) + asV3 t * V3 0.5 0.7 1.0)
@@ -75,7 +76,7 @@ color world = go 1
                          go (attenuation * acc) scattered g2 (callCount + 1)
                        Nothing -> 0
                 else 0
-{-# INLINE color #-}
+    {-# INLINE go #-}
 
 
 data HitResult = HitResult
@@ -84,19 +85,6 @@ data HitResult = HitResult
   , normal :: {-# UNPACK #-} !V3
   , material :: !Material
   } deriving (Eq, Show, Ord)
-
-instance Storable Sphere where
-  sizeOf _ = $(return . LitE . IntegerL . fromIntegral $ sizeOf (undefined :: V3) + sizeOf (undefined :: Double) + sizeOf (undefined :: Material))
-  alignment _ = 16 + (sizeOf (undefined :: Sphere)) `rem` 16
-  peek !elemAddr =
-    let rAddr = castPtr $ elemAddr `plusPtr` sizeOf (undefined :: V3)
-        mAddr = castPtr $ rAddr `plusPtr` sizeOf (undefined :: Double)
-    in Sphere <$> peek (castPtr elemAddr) <*> peek rAddr <*> peek mAddr
-  poke !elemAddr !elem@(Sphere c r m) = 
-    do
-      poke (castPtr elemAddr) c
-      poke (castPtr $ elemAddr `plusPtr` sizeOf c) r
-      poke (castPtr $ elemAddr `plusPtr` sizeOf c `plusPtr` sizeOf r) m
 
 newtype World a = World (Array B Ix1 a)
 
@@ -140,8 +128,8 @@ getRay gen s t cam = let (V3 x y _) = (asV3 $ lensRadius cam) * randomInUnitDisk
 class Hitable a where
   hit :: Double -> Double -> a -> Ray -> Maybe HitResult
 
-instance (Hitable a, Storable a)  => Hitable (World a) where
-  hit tMin tMax (World elems) !ray = A.foldlS combine Nothing elems
+instance (Hitable a)  => Hitable (World a) where
+  hit tMin tMax (World elems) ray = A.foldlS combine Nothing elems
     where combine Nothing elem                      = hit tMin tMax elem ray
           combine (Just r@(HitResult t _ _ _)) elem = case hit tMin t elem ray of
             Nothing -> Just r
@@ -149,7 +137,7 @@ instance (Hitable a, Storable a)  => Hitable (World a) where
   {-# INLINE hit #-}
 
 instance Hitable Sphere where
-  hit tMin tMax (Sphere center r mat) (Ray origin direction) =
+  hit tMin tMax (Sphere !center !r !mat) (Ray origin direction) =
     if disc < 0
     then Nothing
     else let root = if negativeRoot < tMax && negativeRoot > tMin
@@ -175,18 +163,18 @@ reflect v n = v - asV3 (2 * dot v n) * n
 {-# INLINE reflect #-}
 
 scatter :: PCG32 -> Ray -> HitResult -> Maybe (V3, Ray)
-scatter gen !ray@(Ray origin direction) (HitResult _ p normal (Lambertian albedo)) =
+scatter gen ray@(Ray origin direction) (HitResult _ p normal (Lambertian albedo)) =
   let target = p + normal + randomInUnitSphere gen
       scattered = Ray p (target - p)
   in Just (albedo, scattered)
 
-scatter gen !ray@(Ray origin direction) (HitResult _ p normal (Metal albedo fuzz)) =
+scatter gen ray@(Ray origin direction) (HitResult _ p normal (Metal albedo fuzz)) =
   let reflected = reflect (unitVector direction) normal
       scattered = Ray p (reflected + (asV3 fuzz) * randomInUnitSphere gen)
   in if (dot reflected normal) > 0 then Just (albedo, scattered)
                                    else Nothing
 
-scatter gen !ray@(Ray origin direction) (HitResult _ p normal (Dielectric refIdx)) =
+scatter gen ray@(Ray origin direction) (HitResult _ p normal (Dielectric refIdx)) =
   let reflected = reflect direction normal
       attenuation = asV3 1.0
 
@@ -240,10 +228,9 @@ randomInUnitDisk gen =
 {-# INLINE randomInUnitDisk #-}
 
 
-
 arrLightIx2 :: Ix2 -> World Sphere -> Int -> Image S RGB Double
 arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
-  compute $ makeArrayR D Par arrSz lightFunc
+  compute $ toInterleaved $ makeArrayR D Par arrSz lightFunc
   where lookFrom = V3 13 2 3
         lookAt = V3 0 0 0
         aperture = 0.1
@@ -255,7 +242,7 @@ arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
         samplesD = fromIntegral samples
 
         castRay :: Int -> Int -> V3 -> Int -> V3
-        castRay !i !j !rgb !sample =
+        castRay i j rgb sample =
           let 
               idx = 2 * (i + 1) * (j + 1) * (sample + 1)
               stdGen = newPCG32 (fromIntegral idx) (fromIntegral idx)
@@ -268,21 +255,23 @@ arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
               ray = getRay g3 u v camera
               col = color world ray g4 0
           in rgb + col
+
         lightFunc arrI@(j :. i) = 
+        -- TODO: isn't the partially applied cast ray an issue?
           let (V3 r g b) = L.foldl' (castRay i j) 0 [0..(samples - 1)]
           in PixelRGB (sqrt $ r / samplesD) (sqrt $ g / samplesD) (sqrt $ b / samplesD)
         {-# INLINE lightFunc #-}
-{-# INLINE arrLightIx2 #-}
 
 randDoubles :: PCG32 -> Int -> ([Double], PCG32)
 randDoubles gen howMany = L.foldl' genDouble ([], gen) [1..howMany]
   where genDouble (elems, gen') _ = let (x, gen'') = nextD gen'
                                     in (x:elems, gen'')
+{-# INLINE randDoubles #-}
 
 generateWorld :: PCG32 -> World Sphere
 generateWorld gen = 
   let initialSpheres = [
-        (Sphere (V3 0 (-1000) 0) 1000 (Lambertian (V3 0.5 0.5 0.5)))
+          (Sphere (V3 0 (-1000) 0) 1000 (Lambertian (V3 0.5 0.5 0.5)))
         , (Sphere (V3 0 1 0) 1 (Dielectric 1.5))
         , (Sphere (V3 (-4) 1 0) 1 (Lambertian (V3 0.4 0.2 0.1)))
         , (Sphere (V3 4 1 0) 1 (Metal (V3 0.7 0.6 0.5) 0))
@@ -319,5 +308,5 @@ someFunc :: IO ()
 someFunc = do          
   let stdGen = newPCG32 1337 1337
       world = generateWorld stdGen
-      img = arrLightIx2 (10 :. 20) world 100
+      img = arrLightIx2 (100 :. 200) world 100
   writeImage "light.png" img

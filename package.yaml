@@ -31,6 +31,8 @@ dependencies:
 - template-haskell == 2.13.*
 - vector == 0.12.*
 - storable-record == 0.0.*
+- vector-th-unbox == 0.2.1.*
+- utility-ht == 0.0.14
 
 library:
   source-dirs: src

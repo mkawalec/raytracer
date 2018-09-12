@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: b241b1359c54c1fede959eddeaed7e8a6f75d4eb1a35e83066c750064ea5a992
+-- hash: 8b85f3316bd7fd91077bcca8012b76a1814522057180aba1b5c22f386ec8e615
 
 name:           raytracer
 version:        0.1.0.0
@@ -26,6 +26,7 @@ source-repository head
 
 library
   exposed-modules:
+      Dupa
       Lib
       PCG
       Types
@@ -43,8 +44,9 @@ library
     , template-haskell ==2.13.*
     , transformers ==0.5.*
     , unpacked-maybe ==0.1.*
-    , utility-ht ==0.0.*
+    , utility-ht ==0.0.14
     , vector ==0.12.*
+    , vector-th-unbox ==0.2.1.*
   default-language: Haskell2010
 
 executable raytracer-exe
@@ -65,8 +67,9 @@ executable raytracer-exe
     , template-haskell ==2.13.*
     , transformers ==0.5.*
     , unpacked-maybe ==0.1.*
-    , utility-ht ==0.0.*
+    , utility-ht ==0.0.14
     , vector ==0.12.*
+    , vector-th-unbox ==0.2.1.*
   default-language: Haskell2010
 
 test-suite raytracer-test
@@ -88,6 +91,7 @@ test-suite raytracer-test
     , template-haskell ==2.13.*
     , transformers ==0.5.*
     , unpacked-maybe ==0.1.*
-    , utility-ht ==0.0.*
+    , utility-ht ==0.0.14
     , vector ==0.12.*
+    , vector-th-unbox ==0.2.1.*
   default-language: Haskell2010
