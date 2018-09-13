@@ -228,8 +228,8 @@ randomInUnitDisk gen =
 {-# INLINE randomInUnitDisk #-}
 
 
-arrLightIx2 :: Ix2 -> World Sphere -> Int -> Image S RGB Double
-arrLightIx2 arrSz@(sizeY :. sizeX) world samples =
+computePixels :: Ix2 -> World Sphere -> Int -> Image S RGB Double
+computePixels arrSz@(sizeY :. sizeX) world samples =
   compute $ toInterleaved $ makeArrayR D Par arrSz lightFunc
   where lookFrom = V3 13 2 3
         lookAt = V3 0 0 0
@@ -308,5 +308,5 @@ someFunc :: IO ()
 someFunc = do          
   let stdGen = newPCG32 1337 1337
       world = generateWorld stdGen
-      img = arrLightIx2 (100 :. 200) world 100
+      img = computePixels (100 :. 200) world 100
   writeImage "light.png" img
